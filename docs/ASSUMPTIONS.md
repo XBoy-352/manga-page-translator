@@ -23,3 +23,15 @@ Decisions taken where docs/SPEC.md is silent, per slice. SPEC.md stays binding; 
 - **`readModel` error scope:** only `NotFoundError` from OPFS is translated to `Error('Model not cached: <id>')`; other storage errors propagate unchanged so real failures are not masked as "not cached".
 - **LOCAL_LLM row has no Download button:** the LLM weights are fetched by Transformers.js from `onnx-community/Qwen2.5-1.5B-Instruct` (§7.9: never rehosted) and cached in its default browser cache on first use of the local backend (A4). The options row shows repo + exact size and a note saying weights download on first local use; wiring a second download path here would duplicate slice s8's `local.ts`.
 - **Consent dialog scope:** the options page downloads one registry file per row, so the consent dialog lists that file's name + exact size in bytes (and human-readable form) before any fetch (AC7); the dialog is a native `<dialog>`, and Esc/close counts as cancel.
+
+## s7 — typesetting engine + font (2026-10-04)
+
+- **TTF instead of woff2 (approved):** `src/assets/fonts/comic-neue-bold.ttf` is the upstream Comic Neue Bold TTF from google/fonts/ofl/comicneue, committed as-is per the orchestrator's instruction (SPEC §7.8 names `comic-neue-bold.woff2`). `FontFace` accepts raw TTF bytes, so no conversion step is needed; the OFL license text is committed alongside as `OFL.txt`.
+- **"Estimated lines" (§7.8):** read as `translations.length` (one initial line per provided string); the 1 px-step shrink loop corrects any underestimate by re-wrapping at each size.
+- **bboxW/bboxH in the fit rules:** refer to the 4 px-inset box (the area the text must fit), not the raw balloon bbox; wrap width cap = min(insetW, 1.6 × insetH).
+- **Line height:** `1.2 × fontSize` (SPEC §7.8 fixes neither leading nor how "wrapped height" is measured); wrapped height = line count × line height.
+- **Overflow placement:** when text still overflows at the 9 px floor, the block is top-aligned at the inset top and spills downward only (centering an overflowing block would push text above the balloon); a fitting block is vertically centered.
+- **registerFont side effects:** constructs `FontFace('Comic Neue Bold', bytes, { weight: 'bold' })`, awaits `load()` so the first draw never renders a fallback font, and adds the face to `globalThis.fonts` when the scope exposes a FontFaceSet (works for window and worker callers); returns the FontFace.
+- **ctx.font built from the parameter:** `typeset` sets `ctx.font` from the passed FontFace's own `family`/`weight` (e.g. `bold 12px "Comic Neue Bold"`) rather than a hardcoded string, so the `font` argument is authoritative.
+- **Start-size guard:** `floor(0.9 × bboxH / estimated lines)` is clamped to ≥ 1 px so a degenerate translation count cannot produce an invalid 0 px CSS font; the 9 px shrink floor is unaffected.
+- **Centering via canvas alignment:** horizontal/vertical centering is done with `textAlign = 'center'` / `textBaseline = 'middle'` at the computed line centers, rather than by manually offsetting measured widths.
