@@ -1,0 +1,6 @@
+.pi/
+node_modules/
+.output/
+.wxt/
+dist/
+*.log
