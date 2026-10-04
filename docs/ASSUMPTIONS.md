@@ -47,3 +47,12 @@ Decisions taken where docs/SPEC.md is silent, per slice. SPEC.md stays binding; 
 - **Tail handling:** when the remaining strip already fits within the cap (`y0 + maxSliceHeight ≥ 4h`) it is emitted unsplit. Cuts exist only to enforce `maxSliceHeight`, so a strip never taller than the cap yields exactly one slice regardless of bands; otherwise every page with an internal band would be sharded even when within budget.
 - **Percentile convention:** p5/p95 of a row are the smallest values whose cumulative 256-bin histogram count reaches `0.05 × w` / `0.95 × w` (nearest-rank; no sorting per §7.2). For `w = 0` a row counts as empty.
 - **Degenerate opts:** non-positive `maxSliceHeight`/`minBand` are clamped to 1 so the greedy walk always makes progress and terminates (§7.2 is silent on invalid input).
+
+## s5 — MST balloon clustering + reading order (2026-10-04)
+
+- **Local `Polygon` type:** declared in `src/core/cluster.ts`, structurally identical to §7.3's `Polygon` (owned by `det.ts`, which s5 may not touch). The s5 dispatch explicitly allows the local declaration; structural typing keeps the two types mutually assignable.
+- **Column grouping input:** "balloon centers" are balloon bbox centers (midpoint of `bbox[0..2]`, `bbox[1..3]`) and "balloon width" is `bbox[2] − bbox[0]`. Centers are swept in ascending x; a center-to-center x-gap > `0.5 × median(balloon width)` starts a new column.
+- **Balloons within a column:** read top-to-bottom (ascending bbox-center y). SPEC §7.5 fixes only the column direction and the in-balloon line order; column-major reading (A8) implies top-to-bottom inside a column.
+- **In-balloon line sort:** implemented as the literal two-key reading of §7.5 — `rtl`: cx descending, then cy ascending ("right-to-left then top-to-bottom"); `ltr`: cy ascending per spec, with cx ascending added as tie-break for deterministic output. No nested sub-column grouping inside a balloon, since SPEC gives no in-balloon threshold. Known limit: horizontally stacked lines in an `rtl` balloon with unequal cx are ordered by cx first, exactly as §7.5 text prescribes.
+- **Edge filter strictness:** "drop MST edges longer than T" drops strictly-greater edges, so an edge with weight exactly `T` is kept.
+- **Determinism:** equal-weight MST edges are considered in (i, j) index order; `clusterBalloons` returns balloons in reading order, so the array index always equals the balloon's `order` field.
