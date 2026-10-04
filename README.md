@@ -69,22 +69,34 @@ temporary install automatically on a fresh profile.
 - **Popup** (toolbar icon): backend status line, source-language quick
   selector (JA / KO / ZH — remembered per site), and a *Translate visible
   image* button.
-- **Options page**: the **Models** section lists every downloadable file with
-  its exact size, offers per-file download with progress, and **Clear
-  models**. In this build the settings editor is still a placeholder list;
-  settings themselves live under the `settings` key in
-  `browser.storage.sync`.
+- **Options page**: a **Settings** section — backend (`local` / `remote` /
+  `nano`; `nano` appears only when the browser exposes the Prompt API and
+  reports it `available`), source language (JA / KO / ZH), target language
+  (fixed to English), inpainting mode (Telea / LaMa), Lite mode, SFX threshold
+  (0–1), remote URL and remote API key, plus a glossary editor with
+  add/remove `src`/`dst` rows (a row that is empty or contains `=` shows the
+  inline hint `Use src=dst` and is skipped on save). A non-empty remote URL
+  must start with `http://` or `https://`; invalid text shows the inline error
+  `URL must start with http:// or https://` and is not persisted. A
+  **Models** section lists every downloadable file with its exact size, offers
+  per-file download with progress (cancellable), and **Clear models**.
+  Settings are stored under the `settings` key in `browser.storage.sync`.
 
 ## Translation backends
 
-- **`local` (default)** — Qwen3.5-0.8B runs in the browser via Transformers.js
-  (q4 weights, WebGPU when available, else WASM). Zero configuration; the
-  weights download once (~544 MB) into the browser's default cache on first
-  use of this backend.
+- **`local` (default)** — Qwen3.5-0.8B (`onnx-community/Qwen3.5-0.8B-Text-ONNX`,
+  q4 dtype) runs in the browser via Transformers.js (WebGPU when available,
+  else WASM). Zero configuration; the weights download once on first use of
+  this backend — ~570 MB (570,473,438 bytes incl. tokenizer) — into the
+  browser's default cache. Thinking is disabled
+  (`chat_template_kwargs.enable_thinking: false`); any `<arg_key>think&gt;…&lt;/think&gt;`
+  span is discarded before line matching.
 - **`remote`** — any OpenAI-compatible `POST {remoteUrl}/chat/completions`
-  endpoint, e.g. llama-server below. Optional `remoteApiKey` is sent as
-  `Authorization: Bearer <key>`; HTTP 401/403 surfaces as
-  `Backend unreachable (check URL and API key)`.
+  endpoint, e.g. llama-server below. Requests carry the model name
+  `qwen3.5-0.8b`, `temperature: 0` and
+  `"chat_template_kwargs": { "enable_thinking": false }` (§6.4). Optional
+  `remoteApiKey` is sent as `Authorization: Bearer <key>`; HTTP 401/403
+  surfaces as `Backend unreachable (check URL and API key)`.
 - **`nano`** — Chrome's built-in Prompt API; only offered when the browser
   exposes `LanguageModel` and reports it `available`.
 
@@ -93,7 +105,7 @@ temporary install automatically on a fresh profile.
 Primary deployment — Coolify service on the Oracle A1 VM (aarch64, 4 cores /
 24 GB), reverse-proxied by the existing Coolify Traefik:
 
-- Image `ghcr.io/ggml-org/llama.cpp:server` (arm64 variant), domain
+- Image `ghcr.io/ggml-org/llama.cpp:server` (arm64 variant), attached domain
   `translator.mangal-coolify.duckdns.org` → container port `8081`; Traefik
   terminates TLS. The container binds `0.0.0.0` **inside the Docker network
   only** — no host port is published, so nothing is reachable except via
@@ -111,7 +123,9 @@ Primary deployment — Coolify service on the Oracle A1 VM (aarch64, 4 cores /
 
 - Extension settings: `remoteUrl`
   `https://translator.mangal-coolify.duckdns.org/v1`, `remoteApiKey` set to
-  `$LLAMA_API_KEY`.
+  `$LLAMA_API_KEY`. Requests carry the model name `qwen3.5-0.8b` and
+  `"chat_template_kwargs": { "enable_thinking": false }` (§6.4); the
+  streaming parser discards `<arg_key>think&gt;…&lt;/think&gt;` spans before line matching.
 
 **Private alternative (no public exposure):** run the same binary on the VM
 host bound to the Tailscale/private address only, and set `remoteUrl` to
@@ -126,27 +140,33 @@ exact size; cancelling leaves storage untouched. Files are cached in the
 browser's private storage (OPFS) under `/models/`. Only the models required by
 the current settings are requested: the detector (`det-small`, or `det-tiny`
 in Lite mode), the recognizer + dictionary for the source language, and
-`lama` only in LaMa quality mode. Sizes below use MB = MiB (1,048,576 B),
-matching the options page.
+`lama` only in LaMa quality mode. The registry's `.onnx` files are Git-LFS
+objects served from the media CDN
+(`https://media.githubusercontent.com/media/PT-Perkasa-Pilar-Utama/ppu-paddle-ocr-models/main`);
+the `.txt` dictionaries are plain git blobs and come from
+`https://raw.githubusercontent.com/PT-Perkasa-Pilar-Utama/ppu-paddle-ocr-models/main`
+(the media CDN 404s them). Sizes below use MB = MiB (1,048,576 B) and
+KB = KiB (1,024 B), matching the options page; the exact byte values are the
+shipped numbers.
 
-| id | file | size |
-| --- | --- | --- |
-| `det-small` | `PP-OCRv6_small_det.onnx` | 9,437,184 B (9.0 MB) |
-| `det-tiny` | `PP-OCRv6_tiny_det.onnx` | 1,048,576 B (1.0 MB) |
-| `rec-zh-small` | `PP-OCRv6_small_rec.onnx` | 20,971,520 B (20.0 MB) |
-| `rec-zh-tiny` | `PP-OCRv6_tiny_rec.onnx` | 4,194,304 B (4.0 MB) |
-| `dict-zh-small` | `ppocrv6_dict.txt` | 74,948 B (73.2 KB) |
-| `dict-zh-tiny` | `ppocrv6_tiny_dict.txt` | 27,157 B (26.5 KB) |
-| `rec-ja` | `japan_PP-OCRv3_mobile_rec_infer.onnx` | 9,437,184 B (9.0 MB) |
-| `dict-ja` | `japan_dict.txt` | 17,333 B (16.9 KB) |
-| `rec-ko` | `korean_PP-OCRv5_mobile_rec_infer.onnx` | 12,582,912 B (12.0 MB) |
-| `dict-ko` | `ppocrv5_korean_dict.txt` | 47,452 B (46.3 KB) |
-| `lama` | `lama-manga-dynamic.onnx` | 206,291,843 B (196.8 MB) |
-| local LLM | `onnx-community/Qwen3.5-0.8B-Text-ONNX` (q4, fetched by Transformers.js) | 570,473,438 B (544.2 MB) |
+| id | file | fetched from | exact size |
+| --- | --- | --- | --- |
+| `det-small` | `PP-OCRv6_small_det.onnx` | `https://media.githubusercontent.com/media/PT-Perkasa-Pilar-Utama/ppu-paddle-ocr-models/main/detection/PP-OCRv6_small_det.onnx` | 9,880,512 B (9.4 MB) |
+| `det-tiny` | `PP-OCRv6_tiny_det.onnx` | `https://media.githubusercontent.com/media/PT-Perkasa-Pilar-Utama/ppu-paddle-ocr-models/main/detection/PP-OCRv6_tiny_det.onnx` | 1,780,590 B (1.7 MB) |
+| `rec-zh-small` | `PP-OCRv6_small_rec.onnx` | `https://media.githubusercontent.com/media/PT-Perkasa-Pilar-Utama/ppu-paddle-ocr-models/main/recognition/PP-OCRv6_small_rec.onnx` | 21,159,378 B (20.2 MB) |
+| `rec-zh-tiny` | `PP-OCRv6_tiny_rec.onnx` | `https://media.githubusercontent.com/media/PT-Perkasa-Pilar-Utama/ppu-paddle-ocr-models/main/recognition/PP-OCRv6_tiny_rec.onnx` | 4,462,639 B (4.3 MB) |
+| `dict-zh-small` | `ppocrv6_dict.txt` | `https://raw.githubusercontent.com/PT-Perkasa-Pilar-Utama/ppu-paddle-ocr-models/main/recognition/ppocrv6_dict.txt` | 74,948 B (73.2 KB) |
+| `dict-zh-tiny` | `ppocrv6_tiny_dict.txt` | `https://raw.githubusercontent.com/PT-Perkasa-Pilar-Utama/ppu-paddle-ocr-models/main/recognition/ppocrv6_tiny_dict.txt` | 27,157 B (26.5 KB) |
+| `rec-ja` | `japan_PP-OCRv3_mobile_rec_infer.onnx` | `https://media.githubusercontent.com/media/PT-Perkasa-Pilar-Utama/ppu-paddle-ocr-models/main/recognition/multi/japan/v3/japan_PP-OCRv3_mobile_rec_infer.onnx` | 10,031,937 B (9.6 MB) |
+| `dict-ja` | `japan_dict.txt` | `https://raw.githubusercontent.com/PT-Perkasa-Pilar-Utama/ppu-paddle-ocr-models/main/recognition/multi/japan/v3/japan_dict.txt` | 17,333 B (16.9 KB) |
+| `rec-ko` | `korean_PP-OCRv5_mobile_rec_infer.onnx` | `https://media.githubusercontent.com/media/PT-Perkasa-Pilar-Utama/ppu-paddle-ocr-models/main/recognition/multi/korean/v5/korean_PP-OCRv5_mobile_rec_infer.onnx` | 13,443,278 B (12.8 MB) |
+| `dict-ko` | `ppocrv5_korean_dict.txt` | `https://raw.githubusercontent.com/PT-Perkasa-Pilar-Utama/ppu-paddle-ocr-models/main/recognition/multi/korean/v5/ppocrv5_korean_dict.txt` | 47,452 B (46.3 KB) |
+| `lama` | `lama-manga-dynamic.onnx` | `https://huggingface.co/ogkalu/lama-manga-onnx-dynamic/resolve/main/lama-manga-dynamic.onnx` | 206,291,843 B (196.7 MB) |
+| local LLM | `onnx-community/Qwen3.5-0.8B-Text-ONNX` (q4, fetched by Transformers.js) | `https://huggingface.co/onnx-community/Qwen3.5-0.8B-Text-ONNX` | 570,473,438 B (544.0 MB) |
 
 A default first run (Japanese, Telea, non-lite, local backend) therefore asks
-consent for `det-small` + `rec-ja` + `dict-ja` (≈18 MB); the LLM weights are
-fetched by Transformers.js on first use of the `local` backend.
+consent for `det-small` + `rec-ja` + `dict-ja` (19,929,782 B ≈ 19 MB); the LLM
+weights are fetched by Transformers.js on first use of the `local` backend.
 
 ## Limitations
 

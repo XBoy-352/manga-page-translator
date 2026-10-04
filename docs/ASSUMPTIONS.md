@@ -343,3 +343,63 @@ Where each pre-agreed assumption is realized in the shipped code / README. Slice
   (blur / radio / checkbox / select) and `pagehide` flush immediately.
   Verification: `npm run lint` (tsc strict) clean, `npm run build` (both
   targets) and `npm test` (99/99) green.
+
+## fixC — README to the amended spec (2026-10-04)
+
+- **Model references updated:** local = `onnx-community/Qwen3.5-0.8B-Text-ONNX`
+  q4, ~570 MB first download (570,473,438 bytes incl. tokenizer); remote =
+  `unsloth/Qwen3.5-0.8B-GGUF` Q4_K_M served by llama-server, request model
+  name `qwen3.5-0.8b`, thinking disabled
+  (`chat_template_kwargs.enable_thinking: false`, §6.4; `<arg_key>think&gt;…&lt;/think&gt;`
+  spans discarded by the parser). Stated in the `local`/`remote` backend
+  bullets and in the llama-server section's extension-settings bullet.
+- **Download table source:** ids, URLs and byte values were taken verbatim
+  from the AMENDED SPEC §7.9 (working tree): `OCR_LFS_BASE` (media CDN) for
+  the `.onnx` files, `OCR_RAW_BASE` (raw.githubusercontent.com) for the `.txt`
+  dicts, verified byte values per entry, `LOCAL_LLM` = Qwen3.5-0.8B-Text-ONNX
+  q4 / 570,473,438. The README table now carries a full per-row URL column
+  (base constants expanded) plus the two base URLs in prose.
+- **Drift observed at fixC time (not fixable here, src/** out of scope):**
+  `src/lib/modelRegistry.ts` at HEAD (last touched b9e3b9e) still carried the
+  pre-swap constants — `OCR_BASE` (media CDN for everything incl. dicts),
+  det-small 9,437,184 / det-tiny 1,048,576 / rec-zh-small 20,971,520 /
+  rec-zh-tiny 4,194,304 / rec-ja 9,437,184 / rec-ko 12,582,912, and
+  `LOCAL_LLM` = Qwen2.5-1.5B-Instruct / 1,787,566,590. No registry commit or
+  working-tree change appeared during fixC (polled ~6 min total). The README
+  documents the binding amended §7.9 values; the registry owner (fixA) must
+  land the identical constants so file and README agree. The fixB-era drift
+  flags on `remoteModel` / `local.ts` / `llm.worker.ts` remain open for their
+  owners; the README intentionally documents the §6.4/§7.1 spec value
+  `qwen3.5-0.8b`, not the drifted code default.
+- **Human-readable size corrections (options-page formula `toFixed(1)`,
+  MB = MiB / KB = KiB):** `lama` 196.8 → **196.7 MB** (206,291,843 B = 196.735
+  MiB) and local LLM 544.2 → **544.0 MB** (570,473,438 B = 544.046 MiB) — the
+  old values were mis-rounded. First-run consent example recomputed for the
+  amended bytes: det-small + rec-ja + dict-ja = 19,929,782 B ≈ **19 MB** (was
+  ≈18 MB under the old registry values). MiB conversions for every row were
+  recomputed and checked against the options page's `formatSize`.
+- **LLM row URL (assumption taken):** the "fetched from" cell for the local
+  LLM row is `https://huggingface.co/onnx-community/Qwen3.5-0.8B-Text-ONNX` —
+  the canonical HF repo URL of the §7.9 `LOCAL_LLM.repo` id (the registry
+  stores only the repo id; Transformers.js resolves it against the HF hub,
+  per A4/AC6 "the local LLM from its Hugging Face repo"). Not a new egress
+  claim — same host already named in the privacy note.
+- **Settings section rewritten as shipped (fixB):** the "settings editor is
+  still a placeholder list" wording is removed; the README now describes the
+  real editor — backend (nano only when available, AC9), srcLang, fixed
+  target language, inpaint radios, lite, sfxThreshold, remoteUrl (validated,
+  inline error, invalid text not persisted), remoteApiKey, glossary editor
+  (`Use src=dst` hint, skip-on-save) — plus the Models section and the
+  `settings` storage.sync key. Placeholder text observed in the shipped
+  markup is the Coolify URL (fixB's note supersedes A5's localhost
+  placeholder); not restated numerically in the README beyond §7.12's
+  remoteUrl.
+- **Kept verbatim:** install steps (`npm run build` both targets; Firefox-only
+  via `npx wxt build -b firefox`), Chromium load-unpacked, Firefox
+  temporary-install steps, limitations (vertical JP best-effort A1, SFX
+  confidence rule A3), privacy note, credits.
+- **Verification:** scripted comparison of the README table against amended
+  §7.9 — all 11 registry rows (id/file/URL/bytes) and the LLM row (repo/dtype/
+  bytes) identical; llama-server command block byte-identical to §7.12; stale
+  strings (Qwen2/qwen2, old byte values, "placeholder", "stub") absent.
+  `npm run build` (both targets) green after the edits.
