@@ -13,3 +13,12 @@ Decisions taken where docs/SPEC.md is silent, per slice. SPEC.md stays binding; 
 - **build script:** runs `wxt build -b chrome` then `wxt build -b firefox` sequentially from the single source tree (AC1).
 - **Firefox gecko id:** SPEC §7.11 states no `browser_specific_settings.gecko.id` is required, but AC1 requires `web-ext lint` 0 errors and web-ext (8.5.0 and 10.7.0 both tested) reports `ADDON_ID_REQUIRED` as an **error** for a Firefox MV3 manifest without an id. Resolved in favor of AC1: a Firefox-only gecko id `manga-page-translator@xboy-352.dev` is emitted (chrome manifest stays unchanged). Flag for reviewer/user: replace with a preferred add-on id if one exists.
 - **WXT `srcDir: 'src'` and `manifestVersion: 3`:** WXT defaults to root `entrypoints/` and Firefox MV2; both are overridden to match the SPEC §8 `src/` layout and §7.11 MV3-for-both-targets requirement.
+
+## s5 — MST balloon clustering + reading order (2026-10-04)
+
+- **Local `Polygon` type:** declared in `src/core/cluster.ts`, structurally identical to §7.3's `Polygon` (owned by `det.ts`, which s5 may not touch). The s5 dispatch explicitly allows the local declaration; structural typing keeps the two types mutually assignable.
+- **Column grouping input:** "balloon centers" are balloon bbox centers (midpoint of `bbox[0..2]`, `bbox[1..3]`) and "balloon width" is `bbox[2] − bbox[0]`. Centers are swept in ascending x; a center-to-center x-gap > `0.5 × median(balloon width)` starts a new column.
+- **Balloons within a column:** read top-to-bottom (ascending bbox-center y). SPEC §7.5 fixes only the column direction and the in-balloon line order; column-major reading (A8) implies top-to-bottom inside a column.
+- **In-balloon line sort:** implemented as the literal two-key reading of §7.5 — `rtl`: cx descending, then cy ascending ("right-to-left then top-to-bottom"); `ltr`: cy ascending per spec, with cx ascending added as tie-break for deterministic output. No nested sub-column grouping inside a balloon, since SPEC gives no in-balloon threshold. Known limit: horizontally stacked lines in an `rtl` balloon with unequal cx are ordered by cx first, exactly as §7.5 text prescribes.
+- **Edge filter strictness:** "drop MST edges longer than T" drops strictly-greater edges, so an edge with weight exactly `T` is kept.
+- **Determinism:** equal-weight MST edges are considered in (i, j) index order; `clusterBalloons` returns balloons in reading order, so the array index always equals the balloon's `order` field.
