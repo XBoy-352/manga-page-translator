@@ -56,8 +56,11 @@ scope.onmessage = async (event: MessageEvent<LlmWorkerIn>) => {
       streamer,
       // A12: thinking mode off — reasoning must not leak into the 'N: text'
       // line format (the LineParser strips <arg_key>think> blocks as a backstop).
+      // The `as` cast is needed because chat_template_kwargs is forwarded to
+      // the model's chat template by transformers.js but absent from its config
+      // types; the cast also disables excess-property checking for it.
       chat_template_kwargs: { enable_thinking: false },
-    });
+    } as Parameters<TextGenerationPipeline>[1]);
     scope.postMessage({ type: 'done' });
   } catch (err) {
     scope.postMessage({ type: 'error', message: err instanceof Error ? err.message : String(err) });

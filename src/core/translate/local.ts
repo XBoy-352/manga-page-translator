@@ -27,8 +27,11 @@ export class LocalBackend implements TranslateBackend {
   }
 
   private ensureWorker(): Worker {
+    // No constructor options: Vite bakes the worker format at build time and
+    // types the ctor as ({ name?: string }); the OCR/LaMa workers spawn the
+    // same way from background.ts.
     if (!this.worker) {
-      this.worker = new LlmWorkerCtor({ type: 'module' });
+      this.worker = new LlmWorkerCtor();
     }
     return this.worker;
   }
