@@ -56,3 +56,86 @@ Decisions taken where docs/SPEC.md is silent, per slice. SPEC.md stays binding; 
 - **In-balloon line sort:** implemented as the literal two-key reading of §7.5 — `rtl`: cx descending, then cy ascending ("right-to-left then top-to-bottom"); `ltr`: cy ascending per spec, with cx ascending added as tie-break for deterministic output. No nested sub-column grouping inside a balloon, since SPEC gives no in-balloon threshold. Known limit: horizontally stacked lines in an `rtl` balloon with unequal cx are ordered by cx first, exactly as §7.5 text prescribes.
 - **Edge filter strictness:** "drop MST edges longer than T" drops strictly-greater edges, so an edge with weight exactly `T` is kept.
 - **Determinism:** equal-weight MST edges are considered in (i, j) index order; `clusterBalloons` returns balloons in reading order, so the array index always equals the balloon's `order` field.
+
+## s6 — mask + Telea port + LaMa patches (2026-10-04)
+
+- **Structural `Polygon`:** §7.3 defines `Polygon` in `core/det.ts` (slice s4);
+  `core/inpaint/mask.ts` declares it locally (non-exported, `score` optional per
+  the s6 slice contract, so bare `{ pts }` lists are accepted; §7.3's
+  `score: number` stays assignable) — same local-declaration pattern as s5 in
+  `core/cluster.ts`.
+- **buildMask rasterization environments:** the production path rasterizes on
+  an OffscreenCanvas per §7.7 (fill + `lineWidth = strokePx` stroke with round
+  join/cap, binarized at ≥50% coverage, alpha ≥ 128). The node test environment
+  has no OffscreenCanvas, so `mask.ts` falls back to a pure rasterizer
+  (even-odd scanline fill at pixel centers + "pixel center within strokePx/2 of
+  the boundary" stroke — exact for round joins/caps) producing the equivalent
+  binary mask.
+- **buildMask dilation:** implemented as the §7.7 separable two-pass max filter
+  restricted to the content bbox (identical output; outside it the dilation is
+  0). For binary input each 1-D pass is evaluated by run-expansion (identical
+  to the sliding max); non-binary input falls back to the monotonic-deque
+  sliding max.
+- **Telea port source:** ported line-for-line from
+  `opencv/modules/photo/src/inpaint.cpp` (4.x): expanded 1px grid, cross-dilate
+  band, rect(2r+1) outer prepass with negated distances (icvCalcFMM negate
+  path), Telea weights |r|⁻³ · 1/(1+|ΔT|) · |r·∇T| with the 0.01→1e-6 dir
+  clamp, one-sided gradient fallbacks and the km/kp/lm/lp border fudges.
+  Verified against `cv2.inpaint(..., cv2.INPAINT_TELEA)` (OpenCV 5.0.0) on
+  random images with interior, edge-touching and corner masks at radius 3 and
+  5: unmasked pixels bit-identical; masked pixels mean |diff| ≤ 0.21, max 5
+  (f64 accumulation vs OpenCV f32, plus the rounding rule below).
+- **Telea rounding:** OpenCV writes `saturate_cast<uchar>(sat + 0.5)` with
+  cvRound = round-half-to-even; JS Math.round is half-up (would bias uniform
+  fills by +1), so half-even is reproduced explicitly.
+- **Telea channels:** OpenCV is 3-channel BGR; the weighted fill runs over all
+  4 RGBA channels (alpha fills from surrounding alpha like any channel). ∇T is
+  channel-independent, so it is computed once per filled pixel.
+- **Telea performance:** measured (Node 26, this machine) ≈ 150 ms for a
+  1200×1600 page whose dilated mask covers 114k px (5.9%), ≈ 36 ms buildMask.
+  The scalar-JS port does not meet the §9 `telea ≤ 30 ms` per-stage budget on
+  masks of this size; the offset-table fast path (precomputed distance weights
+  and relative read offsets, strict-interior path without bounds checks) is
+  already at practical scalar-JVM-JIT throughput. AC3's "WASM/CPU best-effort"
+  clause applies; flagged for the orchestrator (options: smaller real-world
+  text masks, or a future WebGPU Telea).
+- **LaMa session runner injection:** third optional parameter per the s6 slice
+  contract (`LamaSessionRunner`); without it `inpaintLama` throws — the worker
+  always injects. Runner contract: RGB [0,1] CHW `Float32Array`, mask 1=hole,
+  returns [1,3,H,W] floats assumed to be [0,1] and clamped to 0..255 on
+  composite.
+- **LaMa model I/O:** verified from the `lama-manga-dynamic.onnx` file itself:
+  graph inputs `image` [b,3,h,w] and `mask` [b,1,h,w] (float32, dynamic h/w),
+  output `inpainted` [b,3,h,w]; the graph computes `image·(1−mask)` then
+  concatenates the mask, so mask 1 = hole and image in [0,1] RGB (byte order
+  RGBA→RGB assumed). Output range [0,1] is an assumption (clamped).
+- **LaMa patch geometry:** 64 px context clamped to the image, then W/H snapped
+  UP to 64-multiples; if the snapped size overflows the right/bottom edge the
+  patch origin shifts toward the image origin, and out-of-image tensor cells
+  are edge-replicated. Each patch is fed the FULL dilated mask (all components)
+  inside its window but composites only where `mask = 255`; overlapping patches
+  process in component-label order and the last write wins. Components are
+  4-connected. "Never the full page" holds per connected component; a single
+  component spanning the whole page would yield a page-sized patch (no
+  artificial cap — the spec defines no threshold).
+- **lama.worker.ts protocol:** request `{ buf, width, height, maskBuf }` per
+  the slice contract; the reply is the patched RGBA buffer posted as a
+  transferred ArrayBuffer ("returns the patched buffer"). The worker creates
+  the ORT session itself (slice task: "the worker wires onnxruntime") rather
+  than via s4's `lib/ort.ts`, with executionProviders `['webgpu','wasm']` and a
+  wasm-only retry per §7.0; the session is created once per worker.
+- **onnxruntime-web typing:** its package.json exports map has no "types"
+  condition, so Bundler resolution cannot reach the shipped `types.d.ts`
+  (TS7016); the worker import carries a `@ts-ignore` with that explanation.
+  `@ts-ignore` (not `@ts-expect-error`) so a future global module declaration
+  from another slice cannot break this file.
+- **ImageData in pure modules:** `inpaintTelea`/`inpaintLama` construct the
+  result through the native `ImageData` constructor when the global exists
+  (browsers/workers) and return a structurally identical plain object in the
+  node test environment; `tests/telea.test.ts` installs a polyfill global.
+  Signatures stay `ImageData` per §7.7.
+- **s2 dependency:** `src/worker/lama.worker.ts` imports `readModel` from
+  `src/lib/modelCache` per §7.10; s2 was not merged into this worktree's base
+  at writing time, so `npm run lint` fails on that single import here.
+  Verified on a throwaway tree at the s2 commit (b9e3b9e): `tsc --noEmit` clean
+  and the full suite (27 tests) green with this slice's files added.
