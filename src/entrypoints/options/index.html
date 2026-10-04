@@ -10,7 +10,36 @@
       <h1>Options</h1>
       <p>Setting keys (placeholder list — full editor lands in later slices):</p>
       <ul id="setting-keys"></ul>
+
+      <section id="models-section">
+        <h2>Models</h2>
+        <p>
+          Model files are cached in the browser's private storage (OPFS) under
+          <code>/models/</code>. Nothing is fetched before you confirm each
+          download; the exact file name and size are shown first.
+        </p>
+        <div id="model-rows"></div>
+        <p>
+          <button id="clear-models" type="button">Clear models</button>
+          <span id="models-status" role="status"></span>
+        </p>
+      </section>
     </main>
+
+    <dialog id="consent-dialog">
+      <h2>Download model files?</h2>
+      <ul id="consent-files"></ul>
+      <p>
+        Files are fetched from their public sources and cached in the browser's
+        private storage (OPFS). No image data is ever uploaded. Cancel leaves
+        storage untouched.
+      </p>
+      <menu>
+        <button id="consent-cancel" type="button">Cancel</button>
+        <button id="consent-confirm" type="button" class="primary">Download</button>
+      </menu>
+    </dialog>
+
     <script type="module" src="./main.ts"></script>
   </body>
 </html>

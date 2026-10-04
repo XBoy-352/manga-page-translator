@@ -8,3 +8,80 @@ main {
   margin: 0 auto;
   padding: 16px;
 }
+
+#models-section {
+  margin-top: 24px;
+  border-top: 1px solid #ccc;
+  padding-top: 8px;
+}
+
+.model-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px dotted #ddd;
+}
+
+.model-meta {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.model-file {
+  color: #555;
+  font-size: 0.85em;
+  overflow-wrap: anywhere;
+}
+
+.model-size {
+  color: #777;
+  font-size: 0.85em;
+}
+
+.model-state {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.model-status {
+  font-size: 0.85em;
+}
+
+.model-status.error {
+  color: #b00020;
+}
+
+dialog {
+  max-width: 420px;
+  padding: 16px;
+}
+
+dialog::backdrop {
+  background: rgba(0, 0, 0, 0.4);
+}
+
+#consent-files {
+  margin: 8px 0;
+  padding-left: 20px;
+}
+
+#consent-files li {
+  margin: 4px 0;
+}
+
+menu {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 0;
+  margin: 0;
+}
+
+button.primary {
+  font-weight: 600;
+}
