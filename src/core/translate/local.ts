@@ -1,0 +1,62 @@
+// `local` backend: Qwen3.5-0.8B via Transformers.js inside a
+// dedicated worker (SPEC §7.6). All generation happens in
+// src/worker/llm.worker.ts; this class shuttles messages and owns the
+// shared retry/timing driver. The worker is kept alive across translations
+// so the weights stay warm; it is discarded on failure so the next
+// translate() spawns a fresh one.
+
+import { runTranslate, type ChatMessage, type LineHandler, type TranslateBackend } from './backend';
+import type { GlossaryEntry } from './prompt';
+import type { LlmWorkerIn, LlmWorkerOut } from '../../worker/llm.worker';
+// Vite worker import (same pattern as the LaMa worker in the background
+// entrypoint): new URL(..., import.meta.url) is NOT rewritten in the built
+// bundle and yields a dead relative URL against self.location.href.
+import LlmWorkerCtor from '../../worker/llm.worker?worker';
+
+export class LocalBackend implements TranslateBackend {
+  readonly kind = 'local' as const;
+
+  private worker: Worker | null = null;
+
+  translate(
+    req: { strings: string[]; glossary: GlossaryEntry[]; previous: string[] },
+    onLine: LineHandler,
+  ): Promise<{ totalMs: number; firstMs: number }> {
+    const worker = this.ensureWorker();
+    return runTranslate(req, (messages, emit) => this.generate(worker, messages, emit), onLine);
+  }
+
+  private ensureWorker(): Worker {
+    // No constructor options: Vite bakes the worker format at build time and
+    // types the ctor as ({ name?: string }); the OCR/LaMa workers spawn the
+    // same way from background.ts.
+    if (!this.worker) {
+      this.worker = new LlmWorkerCtor();
+    }
+    return this.worker;
+  }
+
+  /** One generation pass; resolves on 'done', rejects on 'error'. */
+  private generate(worker: Worker, messages: ChatMessage[], emit: LineHandler): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      worker.onmessage = (event: MessageEvent<LlmWorkerOut>) => {
+        const msg = event.data;
+        if (msg.type === 'line') emit(msg.tag, msg.text);
+        else if (msg.type === 'done') resolve();
+        else this.fail(worker, reject, msg.message);
+      };
+      worker.onerror = (event: ErrorEvent) => {
+        this.fail(worker, reject, event.message || 'LLM worker failed');
+      };
+      const request: LlmWorkerIn = { type: 'translate', messages };
+      worker.postMessage(request);
+    });
+  }
+
+  /** Drops the (possibly wedged) worker so the next call spawns a fresh one. */
+  private fail(worker: Worker, reject: (err: Error) => void, message: string): void {
+    if (this.worker === worker) this.worker = null;
+    worker.terminate();
+    reject(new Error(message));
+  }
+}

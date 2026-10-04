@@ -14,7 +14,7 @@ image (or uses the toolbar action on the largest visible image) and gets the
 same image back with original glyphs removed and the English translation
 typeset into the bubbles. One click restores the original. OCR runs locally in
 the browser (PP-OCR ONNX models), inpainting runs locally, and translation runs
-through a pluggable backend: local Qwen2.5-1.5B-Instruct (Transformers.js),
+through a pluggable backend: local Qwen3.5-0.8B (Transformers.js),
 a user-configured OpenAI-compatible endpoint, or Chrome Nano when the browser
 exposes it. The same codebase runs in Firefox and Chromium; WebGPU is used when
 present and never required. No account, no analytics, no image ever leaves the
@@ -25,7 +25,7 @@ machine except translated *text* going to a backend the user configured.
 - No site scraping, site adapters, or page-wide batch translation.
 - No accounts, no analytics, no telemetry, no crash reporting.
 - No cloud vision APIs; every pixel is processed on-device.
-- No models larger than Qwen2.5-1.5B-Instruct; no manga-ocr.
+- No translation model beyond the pinned 0.8B-class `LOCAL_LLM`; no manga-ocr.
 - No rehosting of model weights in the repo or any CDN we control.
 - No store publishing (AMO / Chrome Web Store) in this PR — README covers
   temporary/load-unpacked installs only.
@@ -145,10 +145,11 @@ Request body to `POST {remoteUrl}/chat/completions`:
 
 ```json
 {
-  "model": "qwen2.5-1.5b",
+  "model": "qwen3.5-0.8b",
   "temperature": 0,
   "stream": true,
   "max_tokens": 512,
+  "chat_template_kwargs": { "enable_thinking": false },
   "messages": [
     { "role": "system", "content": "You translate comic dialogue to English. Keep each line short and natural. Preserve names exactly as written in the GLOSSARY. Keep the speaker's tone (casual, formal, shouting). Do not explain, annotate, or add quotes. Reply with exactly one line per input tag, in the same order, formatted 'N: translation'." },
     { "role": "user", "content": "GLOSSARY\n先輩=Senpai\n殿下=Your Highness\nCONTEXT (previous page)\n1: We need to leave now.\nTRANSLATE\n1: 待て!\n2: 許さんぞ…" }
@@ -156,9 +157,10 @@ Request body to `POST {remoteUrl}/chat/completions`:
 }
 ```
 
-`local` backend feeds the identical system+user strings to Qwen2.5-1.5B-Instruct
-chat template; `nano` uses `LanguageModel` with the same strings. Response
-parsing: collect `N: text` lines; a tag with no line triggers one retry with an
+`local` backend feeds the identical system+user strings to Qwen3.5-0.8B chat
+template (thinking disabled); `nano` uses `LanguageModel` with the same
+strings. Response parsing: any `<arg_key>think&gt;…&lt;/think&gt;` span is discarded before line
+matching; collect `N: text` lines; a tag with no line triggers one retry with an
 extra user message `Reply again. You missed tag(s): 2, 5. One line per tag.`;
 still-missing tags are left untranslated (bubble untouched) and the badge shows
 `Untranslated: N line(s)`.
@@ -200,8 +202,9 @@ export interface Settings {
   srcLang: SrcLang;            // default 'ja'
   tgtLang: 'en';               // fixed in v1
   backend: BackendKind;        // default 'local'
-  remoteUrl: string;           // default '' ; placeholder http://localhost:8081/v1
-  remoteModel: string;         // default 'qwen2.5-1.5b'
+  remoteUrl: string;           // default '' ; placeholder https://translator.mangal-coolify.duckdns.org/v1
+  remoteApiKey: string;        // default '' ; sent as 'Authorization: Bearer <remoteApiKey>' when non-empty
+  remoteModel: string;         // default 'qwen3.5-0.8b'
   inpaint: InpaintMode;        // default 'telea'
   lite: boolean;               // default false
   sfxThreshold: number;        // default 0.5
@@ -324,8 +327,10 @@ export function createBackend(s: Settings): TranslateBackend;  // throws Backend
   60 chars, omitted on the first page), then `TRANSLATE` + `N: string` lines.
 - System and user strings are exactly the normative example in §6.4.
 - `remote`: `fetch(remoteUrl + '/chat/completions')`, `stream: true`, SSE
-  parsing, `AbortController` with 30 s timeout; per-line commit via `onLine`.
-- `local`: Transformers.js `pipeline('text-generation', 'onnx-community/Qwen2.5-1.5B-Instruct', { dtype: 'q4', device: navigator.gpu ? 'webgpu' : 'wasm' })`; streams tokens through the same line parser; runs in its own worker; default browser cache is used for weights (Assumption A4).
+  parsing, `AbortController` with 30 s timeout; per-line commit via `onLine`;
+  when `remoteApiKey` is non-empty, send header
+  `Authorization: Bearer <remoteApiKey>`.
+- `local`: Transformers.js `pipeline('text-generation', 'onnx-community/Qwen3.5-0.8B-Text-ONNX', { dtype: 'q4', device: navigator.gpu ? 'webgpu' : 'wasm' })`; applies the chat template with `enable_thinking: false`; token streaming through the same parser; runs in its own worker; default browser cache is used for weights (Assumption A4).
 - `nano`: `new LanguageModel({ temperature: 0 })`; `promptStreaming()`; same parser. Guard exactly per AC9.
 
 ### 7.7 `core/inpaint/`
@@ -370,22 +375,23 @@ export function typeset(ctx: OffscreenCanvasRenderingContext2D, balloon: Balloon
 ### 7.9 Model registry (`lib/modelRegistry.ts`)
 
 ```ts
-export const OCR_BASE = 'https://media.githubusercontent.com/media/PT-Perkasa-Pilar-Utama/ppu-paddle-ocr-models/main';
+export const OCR_LFS_BASE = 'https://media.githubusercontent.com/media/PT-Perkasa-Pilar-Utama/ppu-paddle-ocr-models/main';
+export const OCR_RAW_BASE = 'https://raw.githubusercontent.com/PT-Perkasa-Pilar-Utama/ppu-paddle-ocr-models/main'; // .txt dicts are plain git blobs — media CDN 404s them
 export interface ModelEntry { id: string; url: string; bytes: number; sha256?: undefined }
 export const MODEL_REGISTRY: ModelEntry[] = [
-  { id: 'det-small', url: `${OCR_BASE}/detection/PP-OCRv6_small_det.onnx`, bytes: 9_437_184 },
-  { id: 'det-tiny',  url: `${OCR_BASE}/detection/PP-OCRv6_tiny_det.onnx`,  bytes: 1_048_576 },
-  { id: 'rec-zh-small', url: `${OCR_BASE}/recognition/PP-OCRv6_small_rec.onnx`, bytes: 20_971_520 },
-  { id: 'rec-zh-tiny',  url: `${OCR_BASE}/recognition/PP-OCRv6_tiny_rec.onnx`,  bytes: 4_194_304 },
-  { id: 'dict-zh-small', url: `${OCR_BASE}/recognition/ppocrv6_dict.txt`, bytes: 74_948 },
-  { id: 'dict-zh-tiny',  url: `${OCR_BASE}/recognition/ppocrv6_tiny_dict.txt`, bytes: 27_157 },
-  { id: 'rec-ja',   url: `${OCR_BASE}/recognition/multi/japan/v3/japan_PP-OCRv3_mobile_rec_infer.onnx`, bytes: 9_437_184 },
-  { id: 'dict-ja',  url: `${OCR_BASE}/recognition/multi/japan/v3/japan_dict.txt`, bytes: 17_333 },
-  { id: 'rec-ko',   url: `${OCR_BASE}/recognition/multi/korean/v5/korean_PP-OCRv5_mobile_rec_infer.onnx`, bytes: 12_582_912 },
-  { id: 'dict-ko',  url: `${OCR_BASE}/recognition/multi/korean/v5/ppocrv5_korean_dict.txt`, bytes: 47_452 },
+  { id: 'det-small', url: `${OCR_LFS_BASE}/detection/PP-OCRv6_small_det.onnx`, bytes: 9_880_512 },
+  { id: 'det-tiny',  url: `${OCR_LFS_BASE}/detection/PP-OCRv6_tiny_det.onnx`,  bytes: 1_780_590 },
+  { id: 'rec-zh-small', url: `${OCR_LFS_BASE}/recognition/PP-OCRv6_small_rec.onnx`, bytes: 21_159_378 },
+  { id: 'rec-zh-tiny',  url: `${OCR_LFS_BASE}/recognition/PP-OCRv6_tiny_rec.onnx`,  bytes: 4_462_639 },
+  { id: 'dict-zh-small', url: `${OCR_RAW_BASE}/recognition/ppocrv6_dict.txt`, bytes: 74_948 },
+  { id: 'dict-zh-tiny',  url: `${OCR_RAW_BASE}/recognition/ppocrv6_tiny_dict.txt`, bytes: 27_157 },
+  { id: 'rec-ja',   url: `${OCR_LFS_BASE}/recognition/multi/japan/v3/japan_PP-OCRv3_mobile_rec_infer.onnx`, bytes: 10_031_937 },
+  { id: 'dict-ja',  url: `${OCR_RAW_BASE}/recognition/multi/japan/v3/japan_dict.txt`, bytes: 17_333 },
+  { id: 'rec-ko',   url: `${OCR_LFS_BASE}/recognition/multi/korean/v5/korean_PP-OCRv5_mobile_rec_infer.onnx`, bytes: 13_443_278 },
+  { id: 'dict-ko',  url: `${OCR_RAW_BASE}/recognition/multi/korean/v5/ppocrv5_korean_dict.txt`, bytes: 47_452 },
   { id: 'lama', url: 'https://huggingface.co/ogkalu/lama-manga-onnx-dynamic/resolve/main/lama-manga-dynamic.onnx', bytes: 206_291_843 },
 ];
-export const LOCAL_LLM = { repo: 'onnx-community/Qwen2.5-1.5B-Instruct', dtype: 'q4', bytes: 1_787_566_590 };
+export const LOCAL_LLM = { repo: 'onnx-community/Qwen3.5-0.8B-Text-ONNX', dtype: 'q4', bytes: 570_473_438 }; // q4 weights + tokenizer
 ```
 
 - Sizes shown in the consent dialog come from these constants (AC7). The
@@ -415,21 +421,34 @@ export async function clearModels(): Promise<void>;
   wrapper for the same source; no `browser_specific_settings` gecko id is
   required for temporary installs.
 
-### 7.12 llama-server (README, normative command)
+### 7.12 Serving the translation backend (README, normative)
+
+Primary deployment — Coolify service on the Oracle A1 VM (aarch64, 4 cores /
+24 GB), reverse-proxied by the existing Coolify Traefik:
+
+- Image `ghcr.io/ggml-org/llama.cpp:server` (arm64 variant), attached domain
+  `translator.mangal-coolify.duckdns.org` → container port `8081`; Traefik
+  terminates TLS. The container binds `0.0.0.0` **inside the Docker network
+  only** — no host port is published, so nothing is reachable except via
+  Traefik.
+- Persistent volume mounted at `/models` holding
+  `Qwen/Qwen3.5-0.8B` (e.g. from `unsloth/Qwen3.5-0.8B-GGUF`; llama.cpp
+  supports the Qwen3.5 Gated-DeltaNet operator since PR #19504).
+- Service command:
 
 ```bash
-# Oracle A1 VM (aarch64, 4 cores / 24 GB). Port 8080 is taken by the VM's
-# proxy, so llama-server binds 8081. Bind ONLY a private/Tailscale address
-# (or run an SSH tunnel); never expose it publicly.
-~/llama.cpp/build/bin/llama-server \
-  -m ~/models/Qwen2.5-1.5B-Instruct-Q4_K_M.gguf \
-  --host <PRIVATE_IP> --port 8081 -c 4096 -np 2 \
-  --model-draft ~/models/Qwen2.5-0.5B-Instruct-Q4_K_M.gguf --draft-max 16 \
-  --no-webui
+--host 0.0.0.0 --port 8081 -c 4096 -np 2 \
+  -m /models/Qwen3.5-0.8B-Q4_K_M.gguf \
+  --api-key $LLAMA_API_KEY --no-webui
 ```
 
-`<PRIVATE_IP>` is the VM's Tailscale/wireguard address; the extension's
-`remoteUrl` is then `http://<PRIVATE_IP>:8081/v1`.
+- The extension's `remoteUrl` is then
+  `https://translator.mangal-coolify.duckdns.org/v1` with `remoteApiKey` set
+  to `$LLAMA_API_KEY`.
+- Private alternative (no public exposure): run the same binary on the VM host
+  bound to the Tailscale/private address only, and put
+  `http://<PRIVATE_IP>:8081/v1` in `remoteUrl` (port 8080 on the VM belongs to
+  Traefik and is never used for llama-server).
 
 ## 8. Files
 
@@ -513,11 +532,13 @@ export async function clearModels(): Promise<void>;
 | Duplicate trigger | No-op | (none) |
 | > 48 tags | Chunk into ≤ 48-tag requests, sequential | (progress continues) |
 | Tall crop (h/w ≥ 1.6) | Try 0°/90°/270°, keep best score | (logged rotation chosen) |
+| Model emits a `<arg_key>think&gt;…&lt;/think&gt;` block | Parser discards it before line matching | (none) |
 | Very large image (> 8192 px side) | Downscale det input per §7.3; typeset on natural size | (none) |
 | `nano` selected but unavailable | Settings hide the option; if storage says `nano`, fall back to `local` | (none) |
 | Firefox without WebGPU | WASM provider, progress UI, no failure | (none) |
 | Glossary entry missing '=' | Ignored in editor with inline hint | `Use src=dst` |
 | Remote URL without scheme | Settings validation error | `URL must start with http:// or https://` |
+| Remote returns 401/403 | Abort; point at settings | `Backend unreachable (check URL and API key)` |
 
 ## 11. Tests / verification
 
@@ -662,8 +683,20 @@ export async function clearModels(): Promise<void>;
   with zero configuration; the OCI/tailscale server is documented, not default.
 - **A8** Reading order: `ja` → right-to-left column-major; `ko`/`zh` →
   left-to-right row-major.
-- **A9** llama-server binds port **8081** on the VM (8080 is occupied by the
-  VM's reverse proxy) to a private/Tailscale interface only.
+- **A9** The remote endpoint is served via Coolify + Traefik at
+  `https://translator.mangal-coolify.duckdns.org/v1` (llama-server container,
+  no host port published, `--api-key` supported via the extension's
+  `remoteApiKey`); a tailscale-only bind is documented as the private
+  alternative. Port 8080 on the VM belongs to Traefik.
+- **A11** `remoteApiKey` is optional (default `''`); when set it is sent as
+  `Authorization: Bearer <remoteApiKey>`; HTTP 401/403 from the remote shows
+  `Backend unreachable (check URL and API key)`.
+- **A12** Translation model = **Qwen3.5-0.8B** (2026 generation, 201
+  languages, hybrid Gated-DeltaNet architecture) — local via
+  `onnx-community/Qwen3.5-0.8B-Text-ONNX` q4 (~570 MB download), remote via
+  `unsloth/Qwen3.5-0.8B-GGUF` Q4_K_M on the VM. Thinking mode is disabled
+  (`enable_thinking: false`) and `<arg_key>think&gt;` blocks are stripped by the parser.
+  Replaces Qwen2.5-1.5B per user request 2026-10-04.
 - **A10** Repo name `manga-page-translator`, public, under the user's GitHub
   account; base branch `main`.
 

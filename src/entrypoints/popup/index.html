@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Manga Page Translator</title>
+    <link rel="stylesheet" href="./popup.css" />
+  </head>
+  <body>
+    <main>
+      <h1>Manga Page Translator</h1>
+      <p id="version"></p>
+      <p id="backend-status"></p>
+      <p id="backend-error" class="error"></p>
+      <section>
+        <h2>Source language</h2>
+        <p id="site-host"></p>
+        <div id="src-lang">
+          <button data-lang="ja">JA</button>
+          <button data-lang="ko">KO</button>
+          <button data-lang="zh">ZH</button>
+        </div>
+      </section>
+      <button id="translate-btn">Translate visible image</button>
+      <p id="message"></p>
+      <a id="options-link" href="#">Options</a>
+    </main>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

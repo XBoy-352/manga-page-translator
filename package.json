@@ -1,0 +1,29 @@
+{
+  "name": "manga-page-translator",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "wxt",
+    "build": "wxt build -b chrome && wxt build -b firefox",
+    "test": "vitest run",
+    "test:int": "vitest run -c vitest.int.config.ts",
+    "lint": "wxt prepare && tsc --noEmit",
+    "compile": "wxt prepare && tsc --noEmit",
+    "postinstall": "wxt prepare"
+  },
+  "dependencies": {
+    "@huggingface/transformers": "3.8.1",
+    "onnxruntime-web": "1.22.0-dev.20250409-89f8206ba4"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3",
+    "vite": "6.4.3",
+    "vitest": "3.2.7",
+    "web-ext": "10.7.0",
+    "wxt": "0.20.27"
+  }
+}
