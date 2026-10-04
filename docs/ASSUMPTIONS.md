@@ -151,3 +151,95 @@ Decisions taken where docs/SPEC.md is silent, per slice. SPEC.md stays binding; 
 - **ctx.font built from the parameter:** `typeset` sets `ctx.font` from the passed FontFace's own `family`/`weight` (e.g. `bold 12px "Comic Neue Bold"`) rather than a hardcoded string, so the `font` argument is authoritative.
 - **Start-size guard:** `floor(0.9 × bboxH / estimated lines)` is clamped to ≥ 1 px so a degenerate translation count cannot produce an invalid 0 px CSS font; the 9 px shrink floor is unaffected.
 - **Centering via canvas alignment:** horizontal/vertical centering is done with `textAlign = 'center'` / `textBaseline = 'middle'` at the computed line centers, rather than by manually offsetting measured widths.
+
+## s4 — PP-OCR detection + recognition on ort-web (2026-10-04)
+
+- **`preprocessDet` return shape:** the s4 dispatch adds `scale` to §7.3's
+  `{ x, w, h }` (postprocessDb needs it to map coordinates back); the object
+  remains structurally assignable to the §7.3 shape. Returned `w`/`h` are the
+  PADDED tensor dims (multiples of 32) — they are also the prob-map dims the
+  caller passes back to `postprocessDb`.
+- **Det preprocess details (§7.3 is silent on):** resize uses `Math.round` and
+  is skipped entirely (`scale = 1`) when the longest side already fits
+  `limitSideLen`; padding is bottom/right with raw black (0,0,0) BEFORE
+  normalization, matching PaddleOCR's `DetResizeForTest` zero-pad order
+  (NormalizeImage runs after resize/pad); resampling is bilinear
+  (cv2.INTER_LINEAR equivalent) in `resizeRgbaBilinear` (det.ts, shared with
+  rec.ts since no shared image-util file exists in the allowed set).
+- **Pixel-center convention:** min-area rects span pixel-center coordinates
+  like cv2 `findContours` + `minAreaRect` (a filled W-px-wide block yields
+  side W−1). The `area ≥ 16` filter counts component pixels; the unclip
+  distance uses the rect's geometric (shoelace) area, per PaddleOCR
+  `get_expand_c`. Fast score mode samples integer pixel coordinates inside
+  the pre-unclip min-area rect (boundary-inclusive), i.e. `box_score_fast`.
+- **Score / threshold semantics:** one score per component — mean prob inside
+  the pre-unclip min-area rect. `box_thresh = 0.45` gates candidates (§ dispatch);
+  the same score rides on the returned polygon and §7.3's "score < 0.5 dropped"
+  applies to it, making 0.5 the effective output threshold (the 0.45 gate is
+  kept because both constants are binding). The score is not recomputed on the
+  unclipped box (PaddleOCR carries the pre-unclip score through).
+- **Minkowski disk expansion:** implemented exactly for convex quads by
+  offsetting each edge line outward by `d` and intersecting adjacent lines
+  (round joins only round corners, which the subsequent min-area rect
+  ignores); outward normal sign is resolved against the polygon centroid, so
+  it works for either vertex orientation.
+- **Clipping:** final polygon points are clipped to `[0, w/scale] ×
+  [0, h/scale]` (PaddleOCR clips to the destination size, but postprocessDb's
+  §7.3 signature carries no natural dims; the padded extent is the tightest
+  bound available here, and downstream crop/mask consumers clamp to the real
+  image anyway).
+- **Connected components:** 8-connected (cv2.findContours semantics),
+  discovered in row-major scan order, candidates capped at the first 3000.
+- **Extra exports in det.ts / rec.ts:** §7.3/§7.4 fix four functions each; the
+  full-flow helpers were added in the same files so worker and integration
+  test share one code path with the model call injected
+  (`OrtTensorLike`/`OrtRunner`/`firstOutput`, `detProbMap`, `detectWith`;
+  `buildRecBatch`, `rotateCrop`, `recognizeCrops`). No onnxruntime import in
+  core/ — lib/ort.ts bridges to the real types (same pattern as s6's
+  `LamaSessionRunner`).
+- **decodeCtc values are probabilities:** the parameter is named `logits` per
+  §7.4, but the values are treated as per-class probabilities (max value used
+  as the chosen prob, no softmax applied). The PP-OCR rec inference models
+  emit post-softmax CTC output (CTCHead applies softmax in eval mode);
+  verified on rec-zh-tiny in the integration test (scores 0.988 / 0.966).
+  Argmax — and therefore text — is identical either way; only the score scale
+  would differ if a build emitted raw logits.
+- **`buildCharset`:** strips a leading UTF-8 BOM and drops empty lines
+  (trailing-newline artifacts); dict lines are kept verbatim otherwise.
+- **Batch padding:** zero-padded after normalization (mid-gray), matching
+  PaddleOCR's `resize_norm_img` padding; batches are chunks of ≤ 16 variants.
+- **Worker protocol (message API fixed by the dispatch; replies were not):**
+  replies are `{ kind: 'polys', polys }`, `{ kind: 'text', results }`,
+  `{ kind: 'error', message }`; requests are processed strictly in arrival
+  order via a promise chain so replies correspond 1:1 without correlation
+  ids. `recognize` carries an optional `lite?: boolean` because the zh
+  mapping depends on the lite setting and the stated request shape has no
+  other channel (lite never changes ja/ko, which have no tiny recognizer in
+  the registry).
+- **ort.ts:** `warmupCachedModels` warms EVERY cached det model with one 64×64
+  dummy inference ("one dummy det inference" per cached det model, since the
+  lite setting picks between them at runtime) and creates sessions for cached
+  rec models; warmup failures are logged, never thrown. `getSession` memoizes
+  per registry id and deletes a failed promise so a later attempt can retry
+  after the model is downloaded. `runSession` adapts a real session to the
+  structural `OrtRunner` (single-input PP-OCR models: feed key = first input
+  name). `spawnOcrWorker` added here per §7.0 ("ort.ts owns … worker spawn"),
+  same Vite worker-URL pattern as s8's `local.ts`.
+- **MODEL_REGISTRY dict URLs 404 on the media CDN (flagged, cross-slice):**
+  the .onnx files are Git-LFS objects served by
+  media.githubusercontent.com/media, but the dict .txt files are plain git
+  blobs and the media CDN 404s for them (verified for ppocrv6_tiny_dict.txt,
+  japan_dict.txt, ppocrv5_korean_dict.txt); raw.githubusercontent.com serves
+  the identical file. `tests/int/ocr.int.test.ts` tries the registry URL
+  first and falls back to the raw CDN for the SAME repo/branch/path. The
+  shipped registry (s2's file, not editable in s4) needs the same fallback or
+  URL fix for the options-page dict downloads to work.
+- **MODEL_REGISTRY byte constants don't match the real files (flagged,
+  cross-slice):** actual sizes are det-tiny 1,780,590 B (registry 1,048,576),
+  rec-zh-tiny 4,462,639 B (registry 4,194,304); dict-zh-tiny matches
+  (27,157). The §7.9 comment says the listed bytes "are the shipped numbers",
+  so AC7's consent dialog would show wrong sizes. The integration test logs
+  the mismatch instead of asserting it; the registry belongs to s2.
+- **Fixture PNG decoding:** the integration test decodes
+  tests/fixtures/bubble.png (760×240, 8-bit RGB, non-interlaced) with a
+  minimal in-test PNG decoder over node's zlib — no new dependencies (§9).
