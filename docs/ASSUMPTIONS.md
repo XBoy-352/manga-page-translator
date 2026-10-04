@@ -2,6 +2,30 @@
 
 Decisions taken where docs/SPEC.md is silent, per slice. SPEC.md stays binding; these rows never override it.
 
+## Spec §13 pre-agreed assumptions — consolidated index (2026-10-04)
+
+Where each pre-agreed assumption is realized in the shipped code / README. Slice sections below carry the details.
+
+- **A1 — Vertical Japanese (tategaki) best-effort:** implemented in `src/core/rec.ts` (0°/90°/270° recognition for h/w ≥ 1.6 crops, best score wins; s4); documented in README → Limitations.
+- **A2 — `tgtLang` fixed to `'en'`:** `shared/types.ts` / `DEFAULT_SETTINGS.tgtLang` (s1).
+- **A3 — `sfxThreshold` applies to recognition score only; captions translated:** s9 SFX gate — crops scoring below the threshold are dropped before clustering (never masked, inpainted or translated); cluster-less confident text is translated. Documented in README → Limitations.
+- **A4 — LLM weights via Transformers.js' default browser cache; OCR/LaMa/dicts in OPFS:** `src/lib/modelCache.ts` (`/models/`, staged `.tmp/`), options-page LLM row without its own Download button (s2), README → First-run model downloads.
+- **A5 — `remoteUrl` defaults to `''`, placeholder `http://localhost:8081/v1`:** `DEFAULT_SETTINGS.remoteUrl = ''` (s1). The placeholder text belongs to the settings field; the options-page settings editor is still a stub in this build, so no field renders it yet.
+- **A6 — Per-site source language in `storage.local` (`perSiteSrcLang`):** s9 — popup quick selector writes it via the content script, background resolves `perSite[hostname] ?? settings.srcLang` at job start.
+- **A7 — Default backend `local`:** `DEFAULT_SETTINGS.backend = 'local'` (s1); README documents the remote server as an option, not the default.
+- **A8 — Reading order ja → right-to-left column-major, ko/zh → left-to-right row-major:** s5 `clusterBalloons` + the `direction` mapping from `srcLang`.
+- **A9 — Coolify + Traefik deployment, Tailscale-only private alternative, port 8080 = Traefik:** README → llama-server section (normative SPEC §7.12, reproduced verbatim).
+- **A10 — Repo `manga-page-translator`, public, base branch `main`:** unchanged.
+- **A11 — Optional `remoteApiKey` as `Authorization: Bearer`, 401/403 → `Backend unreachable (check URL and API key)`:** s8 `remote.ts` (header) + s9 error mapping (string).
+- **A12 — Qwen3.5-0.8B everywhere (local `onnx-community/Qwen3.5-0.8B-Text-ONNX` q4, remote `unsloth/Qwen3.5-0.8B-GGUF` Q4_K_M, thinking disabled):** normative per SPEC §6.4/§7.9; README documents the spec values. **Drift flag:** see the s10 entry below — the checked-out code still names Qwen2.5-1.5B in `src/lib/modelRegistry.ts`, `src/shared/settings.ts`, `src/core/translate/local.ts` and `src/worker/llm.worker.ts`.
+
+## s10 — README + assumptions (2026-10-04)
+
+- **README model sizes** reproduce the SPEC §7.9 `MODEL_REGISTRY` / `LOCAL_LLM` byte values verbatim (AC7: "the exact byte values above are the shipped numbers").
+- **Cross-slice drift flag (not fixable in s10, src/** is out of scope):** the code at HEAD still carries the pre-swap identifiers — `LOCAL_LLM = onnx-community/Qwen2.5-1.5B-Instruct` (1,787,566,590 B) in `src/lib/modelRegistry.ts`, `DEFAULT_SETTINGS.remoteModel = 'qwen2.5-1.5b'` in `src/shared/settings.ts`, and Qwen2.5 references in `src/core/translate/local.ts` / `src/worker/llm.worker.ts`. These predate the 2026-10-04 spec swap to Qwen3.5-0.8B (commit b84a118) and contradict A12/§7.9; the s2/s8 owners (or the orchestrator) must reconcile. The README documents the binding spec values.
+- **Firefox-only build command in README:** `npm run build -b firefox` fails — npm parses `-b` as its own flag (`EUNKNOWNCONFIG`, verified). README documents `npm run build` (both targets) and `npx wxt build -b firefox` (Firefox only).
+- **README verification (clean profile):** `npx web-ext lint --source-dir .output/firefox-mv3` → 0 errors / 7 warnings; temporary install verified literally via `npx web-ext run --source-dir .output/firefox-mv3` on a fresh profile → "Installed … as a temporary add-on" (the about:debugging → This Firefox → Load Temporary Add-on path).
+
 ## s1 — scaffold WXT extension + shared types (2026-10-04)
 
 - **lint / compile scripts:** `wxt prepare && tsc --noEmit`. Spec §9 mentions "ESLint defaults from WXT template", but slice s1 allows only the pinned dependency list (no ESLint packages), so the TypeScript strict compiler is the lint gate for now. Revisit if reviewers allow adding ESLint dev-dependencies.
@@ -21,7 +45,7 @@ Decisions taken where docs/SPEC.md is silent, per slice. SPEC.md stays binding; 
 - **MB unit:** progress and sizes use MB = MiB (1,048,576 bytes), matching the registry's MiB-aligned byte values (9_437_184 = 9 MB, etc.).
 - **`Storage full` mapping:** a `QuotaExceededError` DOMException raised by any OPFS write during download or publish is mapped to `Error('Storage full')` (§10); a non-200 fetch status (or missing response body) maps to `Error('Download failed (HTTP <code>)')`.
 - **`readModel` error scope:** only `NotFoundError` from OPFS is translated to `Error('Model not cached: <id>')`; other storage errors propagate unchanged so real failures are not masked as "not cached".
-- **LOCAL_LLM row has no Download button:** the LLM weights are fetched by Transformers.js from `onnx-community/Qwen2.5-1.5B-Instruct` (§7.9: never rehosted) and cached in its default browser cache on first use of the local backend (A4). The options row shows repo + exact size and a note saying weights download on first local use; wiring a second download path here would duplicate slice s8's `local.ts`.
+- **LOCAL_LLM row has no Download button:** the LLM weights are fetched by Transformers.js from the §7.9 `LOCAL_LLM` repo (never rehosted) and cached in its default browser cache on first use of the local backend (A4). The options row shows repo + exact size and a note saying weights download on first local use; wiring a second download path here would duplicate slice s8's `local.ts`. (Repo/size as shipped at s2 time were Qwen2.5-1.5B-Instruct / 1,787,566,590 B; superseded by the A12 swap to `onnx-community/Qwen3.5-0.8B-Text-ONNX` / 570,473,438 B — the decision stands, the constants need the s2-owner update flagged under s10.)
 - **Consent dialog scope:** the options page downloads one registry file per row, so the consent dialog lists that file's name + exact size in bytes (and human-readable form) before any fetch (AC7); the dialog is a native `<dialog>`, and Esc/close counts as cancel.
 
 ## s8 — translation backends + prompt + parser (2026-10-04)
