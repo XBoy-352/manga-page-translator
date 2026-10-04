@@ -296,3 +296,50 @@ Where each pre-agreed assumption is realized in the shipped code / README. Slice
 - **Nano fallback:** at job start, backend 'nano' without the `LanguageModel` global falls back to 'local' (§10); an async `availability()` failure mid-job surfaces as the generic retryable error.
 - **Warmup:** `requestIdleCallback` (15 s setTimeout fallback) calls `warmupCachedModels()` — cached models only (§7.0).
 - **AC6:** no new egress — image bytes are fetched in the background and stay local; downloads use registry URLs; remote chat completions go to the user-configured endpoint; nothing else fetches. (Observed, pre-existing: transformers.js defaults its ORT wasm download to a jsdelivr CDN when `wasmPaths` is unset — an s8 concern surfaced by this audit.)
+
+## fixB — real settings editor on the options page (2026-10-04)
+
+- **`nanoAvailable()` import path:** the fixB dispatch cites
+  `src/core/translate/backend.ts`, but the export actually lives in
+  `src/core/translate/nano.ts` (backend.ts only mentions it in a comment, and
+  backend.ts is outside this slice's allowed files); imported from nano.ts.
+- **`remoteApiKey` persistence:** `shared/types.ts` `Settings` /
+  `DEFAULT_SETTINGS` still lack `remoteApiKey` (SPEC §7.1 names it; `remote.ts`
+  does not read it yet — pre-existing s1/s8 drift, not fixable under fixB's
+  file list). The editor persists it as an extra property of the SAME
+  `'settings'` object through the existing `loadSettings`/`saveSettings`
+  helpers (the spread in both directions preserves unknown keys through
+  storage.sync JSON), read via `Settings & { remoteApiKey?: string }`. Once
+  the type/remote owner adds the field, the stored value flows unchanged.
+- **remoteUrl placeholder:** the field placeholder is
+  `https://translator.mangal-coolify.duckdns.org/v1` (fixB dispatch + SPEC
+  §7.1 comment), superseding A5's `http://localhost:8081/v1` placeholder text;
+  A5's `remoteUrl` default `''` is unaffected.
+- **URL validation semantics:** empty `remoteUrl` is valid (it is the default);
+  a non-empty value must match `/^https?:\/\//` or the exact inline error
+  `URL must start with http:// or https://` is shown and the invalid text is
+  NOT persisted — the last valid URL stays in storage (validation prevents
+  storage, mirroring the glossary's skip-on-save rule).
+- **Glossary '=' rule:** with separate src/dst inputs, "contains '=' in the
+  wrong place" is read as any '=' inside src OR dst — the only valid '=' is
+  the conceptual src=dst separator. A row shows `Use src=dst` and is skipped
+  on save when src or dst is empty (after trim) or contains '='; values are
+  trimmed before validation and save.
+- **Empty-row hint:** a pristine empty row shows the hint immediately (the
+  literal rule — empty src ⇒ hint); harmless because empty rows are skipped
+  on save.
+- **sfxThreshold:** parsed with `Number()`; a non-finite value (cleared field)
+  keeps the previously stored value, finite values are clamped to [0,1] on
+  save (min/max/step only constrain steppers, not typing).
+- **Backend fallback on load:** stored `backend: 'nano'` when
+  `nanoAvailable()` resolves false — or any unknown stored value — is
+  corrected to `'local'` in the UI AND persisted (§10 "if storage says nano,
+  fall back to local"); s9's job-start fallback is unchanged and consistent.
+- **`remoteModel` not exposed:** the fixB field list does not name it, so no
+  editor field was added; the stored value is carried through saves untouched
+  (its Qwen2.5 default-value drift stays flagged under s10 for the s1/s8
+  owners).
+- **Save strategy:** `input` events debounce a save (300 ms); `change` events
+  (blur / radio / checkbox / select) and `pagehide` flush immediately.
+  Verification: `npm run lint` (tsc strict) clean, `npm run build` (both
+  targets) and `npm test` (99/99) green.

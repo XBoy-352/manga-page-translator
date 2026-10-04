@@ -8,8 +8,72 @@
   <body>
     <main>
       <h1>Options</h1>
-      <p>Setting keys (placeholder list — full editor lands in later slices):</p>
-      <ul id="setting-keys"></ul>
+
+      <section id="settings-section">
+        <h2>Settings</h2>
+
+        <div class="field">
+          <label for="setting-backend">Backend</label>
+          <select id="setting-backend">
+            <option value="local">local</option>
+            <option value="remote">remote</option>
+            <!-- 'nano' is injected by main.ts only when nanoAvailable() resolves
+                 true (AC9); it must be absent, not disabled, otherwise. -->
+          </select>
+        </div>
+
+        <div class="field">
+          <label for="setting-src-lang">Source language</label>
+          <select id="setting-src-lang">
+            <option value="ja">ja</option>
+            <option value="ko">ko</option>
+            <option value="zh">zh</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label for="setting-tgt-lang">Target language</label>
+          <input id="setting-tgt-lang" type="text" value="en" disabled />
+        </div>
+
+        <fieldset>
+          <legend>Inpainting</legend>
+          <label class="option-row"><input type="radio" name="inpaint" value="telea" /> Telea</label>
+          <label class="option-row"><input type="radio" name="inpaint" value="lama" /> LaMa</label>
+        </fieldset>
+
+        <div class="field">
+          <label class="option-row"><input type="checkbox" id="setting-lite" /> Lite mode</label>
+        </div>
+
+        <div class="field">
+          <label for="setting-sfx-threshold">SFX threshold</label>
+          <input id="setting-sfx-threshold" type="number" min="0" max="1" step="0.05" />
+        </div>
+
+        <div class="field">
+          <label for="setting-remote-url">Remote URL</label>
+          <input
+            id="setting-remote-url"
+            type="text"
+            placeholder="https://translator.mangal-coolify.duckdns.org/v1"
+          />
+          <p class="field-error" id="remote-url-error" hidden>
+            URL must start with http:// or https://
+          </p>
+        </div>
+
+        <div class="field">
+          <label for="setting-remote-api-key">Remote API key</label>
+          <input id="setting-remote-api-key" type="password" />
+        </div>
+
+        <fieldset id="glossary-editor">
+          <legend>Glossary</legend>
+          <div id="glossary-rows"></div>
+          <button id="glossary-add" type="button">Add</button>
+        </fieldset>
+      </section>
 
       <section id="models-section">
         <h2>Models</h2>

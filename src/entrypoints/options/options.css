@@ -9,6 +9,70 @@ main {
   padding: 16px;
 }
 
+/* ---- settings editor (fixB) ---- */
+
+.field {
+  margin: 12px 0;
+}
+
+.field > label[for] {
+  display: block;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.field input[type='text'],
+.field input[type='password'],
+.field input[type='number'],
+.field select {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 6px 8px;
+}
+
+.option-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 0;
+}
+
+fieldset {
+  margin: 12px 0;
+  padding: 8px 12px;
+  border: 1px solid #ccc;
+}
+
+fieldset legend {
+  font-weight: 600;
+  padding: 0 4px;
+}
+
+.field-error {
+  color: #b00020;
+  font-size: 0.85em;
+  margin: 4px 0 0;
+}
+
+.glossary-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  margin: 8px 0;
+}
+
+.glossary-hint {
+  grid-column: 1 / -1;
+  color: #b00020;
+  font-size: 0.85em;
+  margin: 0;
+}
+
+#glossary-add {
+  margin-top: 4px;
+}
+
 #models-section {
   margin-top: 24px;
   border-top: 1px solid #ccc;

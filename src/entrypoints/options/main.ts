@@ -1,17 +1,244 @@
-import { DEFAULT_SETTINGS } from '../../shared/settings';
+import { loadSettings, saveSettings } from '../../shared/settings';
 import { LOCAL_LLM, MODEL_REGISTRY, type ModelEntry } from '../../lib/modelRegistry';
 import { cachedIds, clearModels, fetchToOpfs } from '../../lib/modelCache';
+import type { BackendKind, InpaintMode, Settings, SrcLang } from '../../shared/types';
+// Task note cites backend.ts, but nanoAvailable() is exported from nano.ts
+// (backend.ts only mentions it in a comment) — import from the real path.
+import { nanoAvailable } from '../../core/translate/nano';
 
-// ---- settings stub (kept working; full editor lands in later slices) ----
+// ---- settings editor (fixB) ----
 
-const listEl = document.querySelector('#setting-keys');
-if (listEl) {
-  for (const key of Object.keys(DEFAULT_SETTINGS)) {
-    const li = document.createElement('li');
-    li.textContent = key;
-    listEl.appendChild(li);
+// Drift flag: shared/types.ts Settings has no remoteApiKey yet (SPEC §7.1
+// names it; remote.ts does not read it yet — s1/s8 owner). It is persisted
+// here as an extra property of the same 'settings' object through the
+// existing helpers, so it round-trips and starts flowing to the remote
+// backend as soon as the type gains the field.
+type StoredSettings = Settings & { remoteApiKey?: string };
+
+const backendSelect = document.querySelector<HTMLSelectElement>('#setting-backend');
+const srcLangSelect = document.querySelector<HTMLSelectElement>('#setting-src-lang');
+const tgtLangInput = document.querySelector<HTMLInputElement>('#setting-tgt-lang');
+const teleaRadio = document.querySelector<HTMLInputElement>('input[name="inpaint"][value="telea"]');
+const lamaRadio = document.querySelector<HTMLInputElement>('input[name="inpaint"][value="lama"]');
+const liteCheckbox = document.querySelector<HTMLInputElement>('#setting-lite');
+const sfxInput = document.querySelector<HTMLInputElement>('#setting-sfx-threshold');
+const remoteUrlInput = document.querySelector<HTMLInputElement>('#setting-remote-url');
+const remoteUrlError = document.querySelector<HTMLElement>('#remote-url-error');
+const remoteApiKeyInput = document.querySelector<HTMLInputElement>('#setting-remote-api-key');
+const glossaryRows = document.querySelector<HTMLElement>('#glossary-rows');
+const glossaryAdd = document.querySelector<HTMLButtonElement>('#glossary-add');
+
+let current: StoredSettings | null = null;
+let saveTimer: ReturnType<typeof setTimeout> | undefined;
+
+const SAVE_DEBOUNCE_MS = 300;
+
+function urlIsValid(url: string): boolean {
+  return url === '' || /^https?:\/\//.test(url);
+}
+
+function showUrlError(): void {
+  if (remoteUrlError) remoteUrlError.hidden = false;
+}
+
+function hideUrlError(): void {
+  if (remoteUrlError) remoteUrlError.hidden = true;
+}
+
+/** A glossary row is skippable when a field is empty or holds a misplaced
+ * '=' (the only valid '=' is the src=dst separator itself). */
+function glossaryRowIsValid(src: string, dst: string): boolean {
+  return src !== '' && dst !== '' && !src.includes('=') && !dst.includes('=');
+}
+
+function addGlossaryRow(src = '', dst = ''): void {
+  if (!glossaryRows) return;
+  const row = document.createElement('div');
+  row.className = 'glossary-row';
+
+  const srcInput = document.createElement('input');
+  srcInput.type = 'text';
+  srcInput.className = 'glossary-src';
+  srcInput.placeholder = 'src';
+  srcInput.value = src;
+  row.appendChild(srcInput);
+
+  const dstInput = document.createElement('input');
+  dstInput.type = 'text';
+  dstInput.className = 'glossary-dst';
+  dstInput.placeholder = 'dst';
+  dstInput.value = dst;
+  row.appendChild(dstInput);
+
+  const removeBtn = document.createElement('button');
+  removeBtn.type = 'button';
+  removeBtn.className = 'glossary-remove';
+  removeBtn.textContent = 'Remove';
+  row.appendChild(removeBtn);
+
+  const hint = document.createElement('p');
+  hint.className = 'glossary-hint';
+  hint.textContent = 'Use src=dst';
+  hint.hidden = true;
+  row.appendChild(hint);
+
+  const updateHint = (): void => {
+    hint.hidden = glossaryRowIsValid(srcInput.value.trim(), dstInput.value.trim());
+  };
+  srcInput.addEventListener('input', () => {
+    updateHint();
+    scheduleSave();
+  });
+  dstInput.addEventListener('input', () => {
+    updateHint();
+    scheduleSave();
+  });
+  // 'change' fires when a text field is committed (blur) — flush immediately.
+  srcInput.addEventListener('change', flushSave);
+  dstInput.addEventListener('change', flushSave);
+  removeBtn.addEventListener('click', () => {
+    row.remove();
+    flushSave();
+  });
+
+  glossaryRows.appendChild(row);
+  updateHint();
+}
+
+function collectGlossary(): { src: string; dst: string }[] {
+  const entries: { src: string; dst: string }[] = [];
+  if (!glossaryRows) return entries;
+  for (const row of glossaryRows.querySelectorAll('.glossary-row')) {
+    const src = row.querySelector<HTMLInputElement>('.glossary-src')?.value.trim() ?? '';
+    const dst = row.querySelector<HTMLInputElement>('.glossary-dst')?.value.trim() ?? '';
+    if (!glossaryRowIsValid(src, dst)) continue; // invalid rows are skipped on save
+    entries.push({ src, dst });
+  }
+  return entries;
+}
+
+function scheduleSave(): void {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(flushSave, SAVE_DEBOUNCE_MS);
+}
+
+function flushSave(): void {
+  clearTimeout(saveTimer);
+  saveTimer = undefined;
+  void persist();
+}
+
+async function persist(): Promise<void> {
+  if (
+    !current ||
+    !backendSelect ||
+    !srcLangSelect ||
+    !tgtLangInput ||
+    !teleaRadio ||
+    !lamaRadio ||
+    !liteCheckbox ||
+    !sfxInput ||
+    !remoteUrlInput ||
+    !remoteApiKeyInput
+  ) {
+    return;
+  }
+  const next: StoredSettings = { ...current };
+  next.backend = backendSelect.value as BackendKind;
+  next.srcLang = srcLangSelect.value as SrcLang;
+  next.tgtLang = 'en'; // fixed in v1 (A2); the input is disabled
+  next.inpaint = (lamaRadio.checked ? 'lama' : 'telea') as InpaintMode;
+  next.lite = liteCheckbox.checked;
+  const parsed = Number(sfxInput.value);
+  if (Number.isFinite(parsed)) next.sfxThreshold = Math.min(1, Math.max(0, parsed));
+  const url = remoteUrlInput.value;
+  if (urlIsValid(url)) {
+    next.remoteUrl = url;
+    hideUrlError();
+  } else {
+    // Inline error only: the invalid text stays in the input, the last valid
+    // URL stays in storage — an unusable URL is never persisted.
+    showUrlError();
+  }
+  next.remoteApiKey = remoteApiKeyInput.value;
+  next.glossary = collectGlossary();
+  current = next;
+  try {
+    await saveSettings(next);
+  } catch (e) {
+    console.error('Saving settings failed', e);
   }
 }
+
+async function initSettings(): Promise<void> {
+  if (
+    !backendSelect ||
+    !srcLangSelect ||
+    !tgtLangInput ||
+    !teleaRadio ||
+    !lamaRadio ||
+    !liteCheckbox ||
+    !sfxInput ||
+    !remoteUrlInput ||
+    !remoteApiKeyInput ||
+    !glossaryRows ||
+    !glossaryAdd
+  ) {
+    return; // markup missing — nothing to bind
+  }
+  const saved = (await loadSettings()) as StoredSettings;
+
+  // AC9: offer 'nano' only when the Prompt API is present and fully
+  // available; the option is absent (not disabled) otherwise.
+  const available: BackendKind[] = (await nanoAvailable())
+    ? ['local', 'remote', 'nano']
+    : ['local', 'remote'];
+  for (const kind of available) {
+    const option = document.createElement('option');
+    option.value = kind;
+    option.textContent = kind;
+    backendSelect.appendChild(option);
+  }
+  let backend = saved.backend;
+  if (!available.includes(backend)) {
+    // §10: storage says 'nano' but nano is unavailable (or the stored value
+    // is unknown) → fall back to 'local' and persist the correction.
+    backend = 'local';
+    current = { ...saved, backend };
+    void saveSettings(current).catch((e) => console.error('Saving settings failed', e));
+  }
+  backendSelect.value = backend;
+  if (!current) current = saved;
+
+  srcLangSelect.value = saved.srcLang;
+  tgtLangInput.value = saved.tgtLang;
+  (saved.inpaint === 'lama' ? lamaRadio : teleaRadio).checked = true;
+  liteCheckbox.checked = saved.lite;
+  sfxInput.value = String(saved.sfxThreshold);
+  remoteUrlInput.value = saved.remoteUrl;
+  if (!urlIsValid(saved.remoteUrl)) showUrlError();
+  remoteApiKeyInput.value = saved.remoteApiKey ?? '';
+  for (const entry of saved.glossary) addGlossaryRow(entry.src, entry.dst);
+
+  backendSelect.addEventListener('change', flushSave);
+  srcLangSelect.addEventListener('change', flushSave);
+  teleaRadio.addEventListener('change', flushSave);
+  lamaRadio.addEventListener('change', flushSave);
+  liteCheckbox.addEventListener('change', flushSave);
+  sfxInput.addEventListener('input', scheduleSave);
+  sfxInput.addEventListener('change', flushSave);
+  remoteUrlInput.addEventListener('input', scheduleSave);
+  remoteUrlInput.addEventListener('change', flushSave);
+  remoteApiKeyInput.addEventListener('input', scheduleSave);
+  remoteApiKeyInput.addEventListener('change', flushSave);
+  glossaryAdd.addEventListener('click', () => {
+    addGlossaryRow();
+    flushSave(); // empty rows are skipped on save, so this is a no-op write
+  });
+  window.addEventListener('pagehide', flushSave); // best effort flush on close
+}
+
+initSettings().catch((e) => console.error('Settings editor failed to initialize', e));
 
 // ---- Models section (s2) ----
 
