@@ -1,4 +1,4 @@
-// `local` backend: Qwen2.5-1.5B-Instruct via Transformers.js inside a
+// `local` backend: Qwen3.5-0.8B via Transformers.js inside a
 // dedicated worker (SPEC §7.6). All generation happens in
 // src/worker/llm.worker.ts; this class shuttles messages and owns the
 // shared retry/timing driver. The worker is kept alive across translations
@@ -8,6 +8,10 @@
 import { runTranslate, type ChatMessage, type LineHandler, type TranslateBackend } from './backend';
 import type { GlossaryEntry } from './prompt';
 import type { LlmWorkerIn, LlmWorkerOut } from '../../worker/llm.worker';
+// Vite worker import (same pattern as the LaMa worker in the background
+// entrypoint): new URL(..., import.meta.url) is NOT rewritten in the built
+// bundle and yields a dead relative URL against self.location.href.
+import LlmWorkerCtor from '../../worker/llm.worker?worker';
 
 export class LocalBackend implements TranslateBackend {
   readonly kind = 'local' as const;
@@ -24,10 +28,7 @@ export class LocalBackend implements TranslateBackend {
 
   private ensureWorker(): Worker {
     if (!this.worker) {
-      // Vite bundles this URL into a module worker chunk.
-      this.worker = new Worker(new URL('../../worker/llm.worker.ts', import.meta.url), {
-        type: 'module',
-      });
+      this.worker = new LlmWorkerCtor({ type: 'module' });
     }
     return this.worker;
   }

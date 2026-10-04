@@ -6,8 +6,9 @@ export interface Settings {
   srcLang: SrcLang;            // default 'ja'
   tgtLang: 'en';               // fixed in v1
   backend: BackendKind;        // default 'local'
-  remoteUrl: string;           // default '' ; placeholder http://localhost:8081/v1
-  remoteModel: string;         // default 'qwen2.5-1.5b'
+  remoteUrl: string;           // default '' ; placeholder https://translator.mangal-coolify.duckdns.org/v1
+  remoteApiKey: string;        // default '' ; sent as 'Authorization: Bearer <remoteApiKey>' when non-empty
+  remoteModel: string;         // default 'qwen3.5-0.8b'
   inpaint: InpaintMode;        // default 'telea'
   lite: boolean;               // default false
   sfxThreshold: number;        // default 0.5

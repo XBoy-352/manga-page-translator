@@ -41,12 +41,20 @@ export class RemoteBackend implements TranslateBackend {
       try {
         response = await fetch(this.settings.remoteUrl + '/chat/completions', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            // A11: only sent when the user configured a key (401/403 map to
+            // 'Backend unreachable (check URL and API key)' upstream).
+            ...(this.settings.remoteApiKey
+              ? { Authorization: `Bearer ${this.settings.remoteApiKey}` }
+              : {}),
+          },
           body: JSON.stringify({
             model: this.settings.remoteModel,
             temperature: 0,
             stream: true,
             max_tokens: 512,
+            chat_template_kwargs: { enable_thinking: false },
             messages,
           }),
           signal: controller.signal,

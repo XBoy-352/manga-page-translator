@@ -204,3 +204,28 @@ describe('BackendUnavailableError', () => {
     expect(new BackendUnavailableError('x').name).toBe('BackendUnavailableError');
   });
 });
+
+describe('LineParser think-block stripping (A12)', () => {
+  it('discards a completed think block before line matching', () => {
+    const { lines, push } = collect();
+    push('\u003cthink\u003ereasoning here\u003c/think\u003e\n1: Hello\n');
+    expect(lines).toEqual([[1, 'Hello']]);
+  });
+
+  it('suppresses a think block held open across chunks, but keeps lines before it', () => {
+    const { lines, push } = collect();
+    push('1: Hi\n\u003cthink\u003epartial');
+    push(' still thinking');
+    push('\u003c/think\u003e\n2: Done\n');
+    expect(lines).toEqual([
+      [1, 'Hi'],
+      [2, 'Done'],
+    ]);
+  });
+
+  it('never emits anything from a think block that never closes', () => {
+    const { lines, push } = collect();
+    push('1: Before\n\u003cthink\u003enever closed');
+    expect(lines).toEqual([[1, 'Before']]);
+  });
+});

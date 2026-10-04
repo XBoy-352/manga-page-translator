@@ -39,6 +39,11 @@ export class BackendUnavailableError extends Error {
 // Binding line format from slice s8: a committed reply line is 'N: text'.
 const TAG_LINE_RE = /^\s*(\d+):\s*(.+)$/;
 
+// A12: think-open / think-close tags (built from escapes so the source
+// stays free of raw markup that could confuse tooling).
+const THINK_OPEN = '\u003cthink\u003e';
+const THINK_CLOSE = '\u003c/think\u003e';
+
 export type LineHandler = (tag: number, text: string) => void;
 
 /**
@@ -54,6 +59,24 @@ export class LineParser {
 
   push(chunk: string): void {
     this.buffer += chunk;
+    // A12: discard think spans before line matching - reasoning must not
+    // leak into the 'N: text' format. Streaming-safe:
+    //   1) closed spans are removed wherever they appear;
+    //   2) an unclosed think-open tag parks its region until the closer
+    //      arrives, while complete lines BEFORE the tag still emit.
+    for (;;) {
+      const open = this.buffer.indexOf(THINK_OPEN);
+      if (open === -1) break;
+      const close = this.buffer.indexOf(THINK_CLOSE, open + THINK_OPEN.length);
+      if (close === -1) break;
+      this.buffer = this.buffer.slice(0, open) + this.buffer.slice(close + THINK_CLOSE.length);
+    }
+    let held = '';
+    const open = this.buffer.indexOf(THINK_OPEN);
+    if (open !== -1) {
+      held = this.buffer.slice(open);
+      this.buffer = this.buffer.slice(0, open);
+    }
     let nl = this.buffer.indexOf('\n');
     while (nl !== -1) {
       let line = this.buffer.slice(0, nl);
@@ -63,6 +86,7 @@ export class LineParser {
       if (match) this.onLine(Number(match[1]), match[2]);
       nl = this.buffer.indexOf('\n');
     }
+    if (held) this.buffer += held;
   }
 }
 

@@ -403,3 +403,10 @@ Where each pre-agreed assumption is realized in the shipped code / README. Slice
   bytes) identical; llama-server command block byte-identical to §7.12; stale
   strings (Qwen2/qwen2, old byte values, "placeholder", "stub") absent.
   `npm run build` (both targets) green after the edits.
+
+## fixA-v2 — orchestrator-applied (2026-10-04)
+
+- After 3x AGENT_EMPTY_OUTPUT failures dispatching this slice to the small tier (fixB/fixC landed normally), the orchestrator applied fixA directly. Contents: registry `OCR_RAW_BASE` + exact HEAD-verified byte values (dicts are plain git blobs, media CDN 404s them); `LOCAL_LLM` -> `onnx-community/Qwen3.5-0.8B-Text-ONNX` q4 / 570,473,438 B; `Settings.remoteApiKey` ('' default) + `remoteModel` default 'qwen3.5-0.8b'; remote Authorization Bearer header + `chat_template_kwargs: { enable_thinking: false }`; `LineParser` strips think spans (closed spans removed anywhere; an unclosed open tag parks its region while complete lines before it still emit); llm worker spawn switched to the Vite `?worker` import because `new URL(..., import.meta.url)` is not rewritten in the built background bundle (verified dead relative URL against `self.location.href` before the fix).
+- Think tags in sources are built from `\u003c` escapes so raw markup never travels through tooling paths.
+- fixB reconciliation: `nanoAvailable()` is imported from `translate/nano.ts` (the real export home); `remoteApiKey` is now a first-class `Settings` field, so the editor's untyped extra-property workaround is subsumed.
+- Telea perf note (from s6): scalar-JS Telea is ~1.3 us/hole-pixel (~151 ms at a 114k-hole-px worst case vs the 30 ms stage budget); typical bubbles are 3-8k px (~4-11 ms). Recorded for AC3 measurement; optimization deferred.

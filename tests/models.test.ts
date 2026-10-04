@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { OCR_BASE, LOCAL_LLM, MODEL_REGISTRY, type ModelEntry } from '../src/lib/modelRegistry';
+import { OCR_BASE, OCR_RAW_BASE, LOCAL_LLM, MODEL_REGISTRY, type ModelEntry } from '../src/lib/modelRegistry';
 import { cachedIds, clearModels, fetchToOpfs, readModel } from '../src/lib/modelCache';
 
 // ---------- fake OPFS: in-memory stand-in for navigator.storage.getDirectory() ----------
@@ -147,25 +147,27 @@ afterEach(() => {
 describe('MODEL_REGISTRY (spec §7.9, verbatim)', () => {
   it('contains exactly the 11 spec entries with byte-verbatim URLs and sizes', () => {
     const base = 'https://media.githubusercontent.com/media/PT-Perkasa-Pilar-Utama/ppu-paddle-ocr-models/main';
+    const raw = 'https://raw.githubusercontent.com/PT-Perkasa-Pilar-Utama/ppu-paddle-ocr-models/main';
     expect(OCR_BASE).toBe(base);
+    expect(OCR_RAW_BASE).toBe(raw);
     expect(MODEL_REGISTRY).toHaveLength(11);
     expect(MODEL_REGISTRY).toEqual([
-      { id: 'det-small', url: `${base}/detection/PP-OCRv6_small_det.onnx`, bytes: 9_437_184 },
-      { id: 'det-tiny', url: `${base}/detection/PP-OCRv6_tiny_det.onnx`, bytes: 1_048_576 },
-      { id: 'rec-zh-small', url: `${base}/recognition/PP-OCRv6_small_rec.onnx`, bytes: 20_971_520 },
-      { id: 'rec-zh-tiny', url: `${base}/recognition/PP-OCRv6_tiny_rec.onnx`, bytes: 4_194_304 },
-      { id: 'dict-zh-small', url: `${base}/recognition/ppocrv6_dict.txt`, bytes: 74_948 },
-      { id: 'dict-zh-tiny', url: `${base}/recognition/ppocrv6_tiny_dict.txt`, bytes: 27_157 },
-      { id: 'rec-ja', url: `${base}/recognition/multi/japan/v3/japan_PP-OCRv3_mobile_rec_infer.onnx`, bytes: 9_437_184 },
-      { id: 'dict-ja', url: `${base}/recognition/multi/japan/v3/japan_dict.txt`, bytes: 17_333 },
-      { id: 'rec-ko', url: `${base}/recognition/multi/korean/v5/korean_PP-OCRv5_mobile_rec_infer.onnx`, bytes: 12_582_912 },
-      { id: 'dict-ko', url: `${base}/recognition/multi/korean/v5/ppocrv5_korean_dict.txt`, bytes: 47_452 },
+      { id: 'det-small', url: `${base}/detection/PP-OCRv6_small_det.onnx`, bytes: 9_880_512 },
+      { id: 'det-tiny', url: `${base}/detection/PP-OCRv6_tiny_det.onnx`, bytes: 1_780_590 },
+      { id: 'rec-zh-small', url: `${base}/recognition/PP-OCRv6_small_rec.onnx`, bytes: 21_159_378 },
+      { id: 'rec-zh-tiny', url: `${base}/recognition/PP-OCRv6_tiny_rec.onnx`, bytes: 4_462_639 },
+      { id: 'dict-zh-small', url: `${raw}/recognition/ppocrv6_dict.txt`, bytes: 74_948 },
+      { id: 'dict-zh-tiny', url: `${raw}/recognition/ppocrv6_tiny_dict.txt`, bytes: 27_157 },
+      { id: 'rec-ja', url: `${base}/recognition/multi/japan/v3/japan_PP-OCRv3_mobile_rec_infer.onnx`, bytes: 10_031_937 },
+      { id: 'dict-ja', url: `${raw}/recognition/multi/japan/v3/japan_dict.txt`, bytes: 17_333 },
+      { id: 'rec-ko', url: `${base}/recognition/multi/korean/v5/korean_PP-OCRv5_mobile_rec_infer.onnx`, bytes: 13_443_278 },
+      { id: 'dict-ko', url: `${raw}/recognition/multi/korean/v5/ppocrv5_korean_dict.txt`, bytes: 47_452 },
       { id: 'lama', url: 'https://huggingface.co/ogkalu/lama-manga-onnx-dynamic/resolve/main/lama-manga-dynamic.onnx', bytes: 206_291_843 },
     ]);
   });
 
   it('LOCAL_LLM matches the spec verbatim', () => {
-    expect(LOCAL_LLM).toEqual({ repo: 'onnx-community/Qwen2.5-1.5B-Instruct', dtype: 'q4', bytes: 1_787_566_590 });
+    expect(LOCAL_LLM).toEqual({ repo: 'onnx-community/Qwen3.5-0.8B-Text-ONNX', dtype: 'q4', bytes: 570_473_438 });
   });
 });
 
